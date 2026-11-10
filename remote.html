@@ -32,7 +32,7 @@ button{font:inherit;border-radius:12px;border:1px solid #3a4052;background:#2a2f
 .sub{color:var(--muted);text-align:center;font-size:15px}
 .mini{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin:8px auto 0;max-width:210px}
 .mini div{aspect-ratio:1;border-radius:6px;background:#262a36}
-.mini div.mk{background:#2f7a57}.mini div.win{background:var(--accent)}.mini div.free{background:#5b4a14}
+.mini div.mk{background:#2f7a57}.mini div.need{background:#4a1d26;box-shadow:inset 0 0 0 2px var(--out)}.mini div.win{background:var(--accent)}.mini div.free{background:#5b4a14}
 .row{display:flex;gap:8px}.row button{flex:1}
 .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0}
 .pad button{font-size:28px;font-weight:700;padding:14px 0}
@@ -50,6 +50,7 @@ button{font:inherit;border-radius:12px;border:1px solid #3a4052;background:#2a2f
 <div id="home" hidden>
   <button id="btnCheck" class="big check">🎟 Check a card</button>
   <div class="hint">Starts the waiting music on the laptop and opens the camera here.</div>
+  <div id="homeMsg" class="sub" style="color:var(--out);margin-top:10px"></div>
 </div>
 
 <div id="checking" hidden>
@@ -365,7 +366,7 @@ try{
 }catch(e){}
 relay = relay || 'https://ntfy.sh';
 
-let es = null, lastHeard = 0, checkingNow = false, helloTimer = 0;
+const seenIds = new Set(); let es = null, lastHeard = 0, checkingNow = false, helloTimer = 0;
 function setConn(state, text){ const c = $('#conn'); c.className = state; $('#connText').textContent = text; }
 function send(msg){
   return fetch(`${relay}/${topic}-p2l`, {method: 'POST', body: JSON.stringify(msg)}).catch(() => setConn('bad', 'No internet'));
@@ -377,6 +378,7 @@ function listen(){
   es.onmessage = ev => {
     let d; try{ d = JSON.parse(ev.data); }catch(e){ return; }
     if(d.event && d.event !== 'message') return;
+    if(d.id){ if(seenIds.has(d.id)) return; seenIds.add(d.id); }   // the same message delivered twice
     let m; try{ m = JSON.parse(d.message); }catch(e){ return; }
     lastHeard = Date.now(); setConn('ok', 'Connected');
     onLaptop(m);
@@ -391,6 +393,7 @@ function onLaptop(m){
   } else if(m.type === 'result'){
     showResult(m);
   } else if(m.type === 'warn'){
+    if(!checkingNow){ $('#homeMsg').textContent = '⚠ ' + m.text + (m.sub ? ' ' + m.sub : ''); setTimeout(() => { $('#homeMsg').textContent = ''; }, 15000); return; }
     $('#result').innerHTML = '';
     const v = document.createElement('div'); v.className = 'verdict lose'; v.textContent = m.text;
     const s = document.createElement('div'); s.className = 'sub'; s.textContent = m.sub || '';
@@ -404,7 +407,7 @@ function showResult(m){
   const v = document.createElement('div'); v.className = 'verdict ' + (m.win ? 'win' : 'lose');
   v.textContent = m.win ? `🎉 Card #${m.n} WINS!` : `Card #${m.n}: not yet (${m.short} more)`;
   const g = document.createElement('div'); g.className = 'mini';
-  for(let i = 0; i < 25; i++){ const c = document.createElement('div'); const k = m.marks[i]; c.className = k === '3' ? 'win' : k === '2' ? 'free' : k === '1' ? 'mk' : ''; g.append(c); }
+  for(let i = 0; i < 25; i++){ const c = document.createElement('div'); const k = m.marks[i]; c.className = k === '3' ? 'win' : k === '2' ? 'free' : k === '1' ? 'mk' : k === '4' ? 'need' : ''; g.append(c); }
   box.append(v, g);
   if(navigator.vibrate) navigator.vibrate(m.win ? [80, 60, 80, 60, 200] : 120);
   scanPaused = false;
