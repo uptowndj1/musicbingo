@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#14161c">
+<title>MusicBingo Remote</title>
+<style>
+:root{--bg:#14161c;--panel:#1d2029;--line:#2c3040;--text:#e8e9ee;--muted:#9097a8;--accent:#f2b134;--in:#3ecf8e;--out:#ff5d73}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:16px/1.4 -apple-system,"Segoe UI",system-ui,sans-serif}
+body{display:flex;flex-direction:column;padding:env(safe-area-inset-top) 14px env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 2px}
+h1{font-size:20px;margin:0}h1 span{color:var(--accent)}
+#conn{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+#conn i{width:10px;height:10px;border-radius:50%;background:#555b6c;display:inline-block}
+#conn.ok i{background:var(--in)}#conn.bad i{background:var(--out)}
+#info{color:var(--muted);font-size:15px;margin:0 2px 12px;min-height:21px}
+button{font:inherit;border-radius:12px;border:1px solid #3a4052;background:#2a2f3d;color:var(--text);touch-action:manipulation}
+.big{width:100%;font-size:24px;font-weight:700;padding:22px;margin:6px 0}
+.primary{background:var(--accent);border-color:var(--accent);color:#1a1300}
+.check{background:#3a2347;border-color:#7b4b95;color:#f0d2ff}
+#cam{position:relative;width:100%;aspect-ratio:4/3;max-height:40vh;background:#000;border-radius:14px;overflow:hidden;margin:6px 0}
+#cam video{width:100%;height:100%;object-fit:cover}
+#cam .guide{position:absolute;left:50%;top:50%;width:58%;aspect-ratio:1;transform:translate(-50%,-50%);border:3px dashed rgba(242,177,52,.9);border-radius:14px}
+#cam.hit .guide{border-style:solid;border-color:var(--in)}
+#camMsg{position:absolute;left:0;right:0;bottom:0;padding:8px;background:rgba(0,0,0,.6);text-align:center;font-size:15px}
+#result{margin:8px 0;min-height:30px}
+.verdict{font-size:23px;font-weight:800;text-align:center;margin:6px 0}
+.verdict.win{color:var(--in)}.verdict.lose{color:var(--out)}.verdict.wait{color:var(--muted);font-size:20px}
+.sub{color:var(--muted);text-align:center;font-size:15px}
+.mini{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin:8px auto 0;max-width:210px}
+.mini div{aspect-ratio:1;border-radius:6px;background:#262a36}
+.mini div.mk{background:#2f7a57}.mini div.win{background:var(--accent)}.mini div.free{background:#5b4a14}
+.row{display:flex;gap:8px}.row button{flex:1}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0}
+.pad button{font-size:28px;font-weight:700;padding:14px 0}
+#num{font-size:30px;font-weight:800;text-align:center;background:#11131a;border:1px solid #3a4052;border-radius:12px;padding:10px;min-height:60px}
+.hint{color:var(--muted);font-size:14px;text-align:center;margin:6px 0}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><h1>Music<span>Bingo</span> Remote</h1><div id="conn"><i></i><span id="connText">Not paired</span></div></header>
+<div id="info"></div>
+
+<div id="unpaired" class="hint" style="font-size:17px;margin-top:30px">Open MusicBingo on the laptop, tap <b>📱 Phone remote</b>, and scan the pairing code with your phone's camera.</div>
+
+<div id="home" hidden>
+  <button id="btnCheck" class="big check">🎟 Check a card</button>
+  <div class="hint">Starts the waiting music on the laptop and opens the camera here.</div>
+</div>
+
+<div id="checking" hidden>
+  <div id="cam"><video id="video" playsinline muted></video><div class="guide"></div><div id="camMsg">Starting camera…</div></div>
+  <div id="padBox" hidden>
+    <div id="num">Card #</div>
+    <div class="pad">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button data-k="back">⌫</button><button data-k="0">0</button><button data-k="go" class="primary">Check</button>
+    </div>
+  </div>
+  <div id="result"></div>
+  <div class="row"><button id="btnPad" class="big" style="font-size:18px">🔢 Type number</button><button id="btnDone" class="big primary" style="font-size:18px">Done · resume music</button></div>
+</div>
+<script>
+/* ---------- QR code reader (for the laptop camera) ---------- */
+const QRScan = (() => {
+  // ---- Galois field and Reed-Solomon error correction
+  const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  { let x = 1; for(let i = 0; i < 255; i++){ EXP[i] = x; LOG[x] = i; x <<= 1; if(x & 0x100) x ^= 0x11D; } for(let i = 255; i < 512; i++) EXP[i] = EXP[i - 255]; }
+  const mul = (a, b) => (a && b) ? EXP[LOG[a] + LOG[b]] : 0;
+  const div = (a, b) => a ? EXP[(LOG[a] + 255 - LOG[b]) % 255] : 0;
+  const pw = e => EXP[((e % 255) + 255) % 255];
+  const pEval = (p, x) => { let y = 0; for(let i = p.length - 1; i >= 0; i--) y = mul(y, x) ^ p[i]; return y; };   // p[0] = constant term
+  function syndromes(cw, ec){ const S = []; let any = false; for(let j = 0; j < ec; j++){ let s = 0; const a = pw(j); for(const c of cw) s = mul(s, a) ^ c; S.push(s); if(s) any = true; } return any ? S : null; }
+  function rsCorrect(cw, ec){
+    const n = cw.length, S = syndromes(cw, ec);
+    if(!S) return true;
+    let C = [1], B = [1], L = 0, m = 1, b = 1;
+    for(let k = 0; k < ec; k++){
+      let d = S[k]; for(let i = 1; i <= L; i++) d ^= mul(C[i] || 0, S[k - i]);
+      if(!d){ m++; continue; }
+      const T = C.slice(), coef = div(d, b);
+      while(C.length < B.length + m) C.push(0);
+      for(let i = 0; i < B.length; i++) C[i + m] ^= mul(coef, B[i]);
+      if(2 * L <= k){ L = k + 1 - L; B = T; b = d; m = 1; } else m++;
+    }
+    while(C.length > 1 && !C[C.length - 1]) C.pop();
+    if(C.length - 1 !== L || 2 * L > ec) return false;
+    const pos = []; for(let p = 0; p < n; p++) if(!pEval(C, pw(-p))) pos.push(p);
+    if(pos.length !== L) return false;
+    const Om = new Array(ec).fill(0);
+    for(let i = 0; i < ec; i++) for(let j = 0; j < C.length && i + j < ec; j++) Om[i + j] ^= mul(S[i], C[j]);
+    const dC = []; for(let i = 1; i < C.length; i++) dC.push(i & 1 ? C[i] : 0);
+    for(const p of pos){
+      const Xi = pw(-p), den = pEval(dC, Xi); if(!den) return false;
+      cw[n - 1 - p] ^= mul(pw(p), div(pEval(Om, Xi), den));
+    }
+    return !syndromes(cw, ec);
+  }
+  // ---- tables (versions 1–10): [ec per block, blocks, data each, blocks, data each]
+  const EC = {
+    1: [null,[7,1,19],[10,1,34],[15,1,55],[20,1,80],[26,1,108],[18,2,68],[20,2,78],[24,2,97],[30,2,116],[18,2,68,2,69]],
+    0: [null,[10,1,16],[16,1,28],[26,1,44],[18,2,32],[24,2,43],[16,4,27],[18,4,31],[22,2,38,2,39],[22,3,36,2,37],[26,4,43,1,44]],
+    3: [null,[13,1,13],[22,1,22],[18,2,17],[26,2,24],[18,2,15,2,16],[24,4,19],[18,2,14,4,15],[22,4,18,2,19],[20,4,16,4,17],[24,6,19,2,20]],
+    2: [null,[17,1,9],[28,1,16],[22,2,13],[16,4,9],[22,2,11,2,12],[28,4,15],[26,4,13,1,14],[26,4,14,2,15],[24,4,12,4,13],[28,6,15,2,16]]};
+  const ALIGN = [null,[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50]];
+  const FORMATS = []; for(let d = 0; d < 32; d++){ let r = d; for(let i = 0; i < 10; i++) r = (r << 1) ^ ((r >>> 9) * 0x537); FORMATS.push([((d << 10) | r) ^ 0x5412, d]); }
+  const MASKS = [(x, y) => (x + y) % 2 === 0, (x, y) => y % 2 === 0, (x, y) => x % 3 === 0, (x, y) => (x + y) % 3 === 0,
+    (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0, (x, y) => x * y % 2 + x * y % 3 === 0,
+    (x, y) => (x * y % 2 + x * y % 3) % 2 === 0, (x, y) => ((x + y) % 2 + x * y % 3) % 2 === 0];
+  const bits = v => { let c = 0; while(v){ c += v & 1; v >>>= 1; } return c; };
+
+  // ---- black/white image (adaptive, so shadows and glare don't matter)
+  function binarize(g, w, h){
+    const B = 8, bw = Math.ceil(w / B), bh = Math.ceil(h / B), avg = new Float32Array(bw * bh);
+    for(let by = 0; by < bh; by++) for(let bx = 0; bx < bw; bx++){
+      let mn = 255, mx = 0, sum = 0, n = 0;
+      for(let y = by * B; y < Math.min(h, by * B + B); y++) for(let x = bx * B; x < Math.min(w, bx * B + B); x++){ const v = g[y * w + x]; sum += v; n++; if(v < mn) mn = v; if(v > mx) mx = v; }
+      let a = sum / n;
+      if(mx - mn <= 24){ a = mn / 2; if(by > 0 && bx > 0){ const nb = (avg[(by - 1) * bw + bx] + 2 * avg[by * bw + bx - 1] + avg[(by - 1) * bw + bx - 1]) / 4; if(mn < nb) a = nb; } }
+      avg[by * bw + bx] = a;
+    }
+    const out = new Uint8Array(w * h);
+    for(let by = 0; by < bh; by++) for(let bx = 0; bx < bw; bx++){
+      let s = 0, n = 0;
+      for(let dy = -2; dy <= 2; dy++) for(let dx = -2; dx <= 2; dx++){ const yy = by + dy, xx = bx + dx; if(yy >= 0 && yy < bh && xx >= 0 && xx < bw){ s += avg[yy * bw + xx]; n++; } }
+      const t = s / n;
+      for(let y = by * B; y < Math.min(h, by * B + B); y++) for(let x = bx * B; x < Math.min(w, bx * B + B); x++) out[y * w + x] = g[y * w + x] <= t ? 1 : 0;
+    }
+    return out;
+  }
+  // ---- the three big corner squares
+  function ratioOK(sc){
+    const t = sc[0] + sc[1] + sc[2] + sc[3] + sc[4]; if(t < 7 || sc.some(c => !c)) return false;
+    const m = t / 7, v = m / 1.5;
+    return Math.abs(m - sc[0]) < v && Math.abs(m - sc[1]) < v && Math.abs(3 * m - sc[2]) < 3 * v && Math.abs(m - sc[3]) < v && Math.abs(m - sc[4]) < v;
+  }
+  function crossCheck(bin, w, h, x0, y0, dx, dy, maxC, origT){
+    const at = (x, y) => x >= 0 && y >= 0 && x < w && y < h ? bin[y * w + x] : -1;
+    const sc = [0, 0, 0, 0, 0];
+    let x = x0, y = y0;
+    while(at(x, y) === 1){ sc[2]++; x -= dx; y -= dy; }
+    if(at(x, y) < 0) return null;
+    while(at(x, y) === 0 && sc[1] <= maxC){ sc[1]++; x -= dx; y -= dy; }
+    if(at(x, y) < 0 || sc[1] > maxC) return null;
+    while(at(x, y) === 1 && sc[0] <= maxC){ sc[0]++; x -= dx; y -= dy; }
+    if(sc[0] > maxC) return null;
+    x = x0 + dx; y = y0 + dy;
+    while(at(x, y) === 1){ sc[2]++; x += dx; y += dy; }
+    if(at(x, y) < 0) return null;
+    while(at(x, y) === 0 && sc[3] < maxC){ sc[3]++; x += dx; y += dy; }
+    if(at(x, y) < 0 || sc[3] >= maxC) return null;
+    while(at(x, y) === 1 && sc[4] < maxC){ sc[4]++; x += dx; y += dy; }
+    if(sc[4] >= maxC) return null;
+    const t = sc.reduce((a, b) => a + b, 0);
+    if(5 * Math.abs(t - origT) >= 2 * origT || !ratioOK(sc)) return null;
+    const endOff = (dx ? x - x0 : y - y0);   // distance from start to end of the pattern
+    return {center: endOff - sc[4] - sc[3] - sc[2] / 2, total: t};
+  }
+  function findFinders(bin, w, h, step = 2){
+    const found = [];
+    const add = (cx, cy, ms) => {
+      for(const f of found){ if(Math.abs(f.x - cx) <= ms * 2 && Math.abs(f.y - cy) <= ms * 2 && Math.abs(f.ms - ms) <= Math.max(1, f.ms * 0.6)){ const n = f.n; f.x = (f.x * n + cx) / (n + 1); f.y = (f.y * n + cy) / (n + 1); f.ms = (f.ms * n + ms) / (n + 1); f.n++; return; } }
+      found.push({x: cx, y: cy, ms, n: 1});
+    };
+    for(let y = 0; y < h; y += step){
+      const sc = [0, 0, 0, 0, 0]; let st = 0;
+      const tryAt = endX => {
+        const t = sc.reduce((a, b) => a + b, 0);
+        let cx = Math.round(endX - sc[4] - sc[3] - sc[2] / 2);
+        const v = crossCheck(bin, w, h, cx, y, 0, 1, sc[2], t); if(!v) return false;
+        const cy = Math.round(y + v.center);
+        const hz = crossCheck(bin, w, h, cx, cy, 1, 0, sc[2], t); if(!hz) return false;
+        add(cx + hz.center, cy, (t + v.total + hz.total) / 21);
+        return true;
+      };
+      for(let x = 0; x < w; x++){
+        if(bin[y * w + x]){ if(st & 1) st++; sc[st]++; }
+        else if(st & 1) sc[st]++;
+        else if(st === 4){
+          if(ratioOK(sc) && tryAt(x)){ sc.fill(0); st = 0; }
+          else { sc[0] = sc[2]; sc[1] = sc[3]; sc[2] = sc[4]; sc[3] = 1; sc[4] = 0; st = 3; }
+        } else sc[++st]++;
+      }
+      if(st === 4 && ratioOK(sc)) tryAt(w);
+    }
+    return found;
+  }
+  function pickThree(found){
+    let c = found.filter(f => f.n >= 2); if(c.length < 3) c = found;
+    c = c.sort((a, b) => b.n - a.n).slice(0, 10);
+    const all = [];
+    for(let i = 0; i < c.length; i++) for(let j = i + 1; j < c.length; j++) for(let k = j + 1; k < c.length; k++){
+      const p = [c[i], c[j], c[k]], ms = p.map(q => q.ms), mm = Math.max(...ms), mn = Math.min(...ms);
+      if(mm > mn * 1.6) continue;
+      const d = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+      const s = [d(p[0], p[1]), d(p[1], p[2]), d(p[0], p[2])].sort((a, b) => a - b);
+      if(s[0] < (mm * 12) ** 2) continue;
+      const score = Math.abs(s[2] - s[0] - s[1]) / s[2] + Math.abs(s[0] - s[1]) / s[2] + (mm - mn) / mm;
+      if(score < 1.0) all.push({p, score});
+    }
+    return all.sort((a, b) => a.score - b.score).slice(0, 4).map(orient);
+  }
+  function orient(best){
+    const [a, b, cc] = best.p, d = (u, v) => (u.x - v.x) ** 2 + (u.y - v.y) ** 2;
+    // the top-left corner is the one opposite the longest side
+    let tl, o1, o2;
+    const ab = d(a, b), bc = d(b, cc), ac = d(a, cc);
+    if(bc >= ab && bc >= ac){ tl = a; o1 = b; o2 = cc; } else if(ac >= ab && ac >= bc){ tl = b; o1 = a; o2 = cc; } else { tl = cc; o1 = a; o2 = b; }
+    const cross = (o1.x - tl.x) * (o2.y - tl.y) - (o1.y - tl.y) * (o2.x - tl.x);
+    return cross > 0 ? {tl, tr: o1, bl: o2} : {tl, tr: o2, bl: o1};
+  }
+  // ---- map module positions to camera pixels
+  function solve(A, b){
+    const n = b.length;
+    for(let c = 0; c < n; c++){
+      let p = c; for(let r = c + 1; r < n; r++) if(Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+      if(Math.abs(A[p][c]) < 1e-12) return null;
+      [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+      for(let r = 0; r < n; r++){ if(r === c) continue; const f = A[r][c] / A[c][c]; for(let k = c; k < n; k++) A[r][k] -= f * A[c][k]; b[r] -= f * b[c]; }
+    }
+    return b.map((v, i) => v / A[i][i]);
+  }
+  function homography(src, dst){
+    const A = [], b = [];
+    for(let i = 0; i < 4; i++){ const [u, v] = src[i], [x, y] = dst[i]; A.push([u, v, 1, 0, 0, 0, -u * x, -v * x]); b.push(x); A.push([0, 0, 0, u, v, 1, -u * y, -v * y]); b.push(y); }
+    const h = solve(A, b); if(!h) return null;
+    return (u, v) => { const w = h[6] * u + h[7] * v + 1; return [(h[0] * u + h[1] * v + h[2]) / w, (h[3] * u + h[4] * v + h[5]) / w]; };
+  }
+  function findAlignment(bin, w, h, ex, ey, ms){
+    const at = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h ? bin[y * w + x] : 0; };
+    const R = Math.round(ms * 4); let best = null;
+    for(let y = Math.round(ey - R); y <= ey + R; y++) for(let x = Math.round(ex - R); x <= ex + R; x++){
+      let s = at(x, y) ? 2 : -2;
+      for(let k = 0; k < 8; k++){ const a = k * Math.PI / 4, c = Math.cos(a), sn = Math.sin(a);
+        s += at(x + c * ms, y + sn * ms) ? -1 : 1; s += at(x + c * 2 * ms, y + sn * 2 * ms) ? 1 : -1; }
+      s -= Math.hypot(x - ex, y - ey) / (ms * 4);   // prefer close to where it should be
+      if(!best || s > best.s) best = {s, x, y};
+    }
+    return best && best.s >= 12 ? best : null;
+  }
+  function functionMap(ver){
+    const size = ver * 4 + 17, f = Array.from({length: size}, () => new Uint8Array(size));
+    const mk = (x, y) => { if(x >= 0 && y >= 0 && x < size && y < size) f[y][x] = 1; };
+    for(let i = 0; i < size; i++){ mk(6, i); mk(i, 6); }
+    for(const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) for(let dy = -4; dy <= 4; dy++) for(let dx = -4; dx <= 4; dx++) mk(cx + dx, cy + dy);
+    const al = ALIGN[ver], last = al.length - 1;
+    for(let i = 0; i <= last; i++) for(let j = 0; j <= last; j++){
+      if((i === 0 && j === 0) || (i === 0 && j === last) || (i === last && j === 0)) continue;
+      for(let dy = -2; dy <= 2; dy++) for(let dx = -2; dx <= 2; dx++) mk(al[i] + dx, al[j] + dy);
+    }
+    for(let i = 0; i <= 8; i++){ mk(8, i); mk(i, 8); }
+    for(let i = 0; i < 8; i++){ mk(size - 1 - i, 8); mk(8, size - 1 - i); }
+    if(ver >= 7) for(let i = 0; i < 18; i++){ const a = size - 11 + i % 3, c = Math.floor(i / 3); mk(a, c); mk(c, a); }
+    return f;
+  }
+  // ---- read the grid of modules
+  function readGrid(M, ver){
+    const size = M.length;
+    const g = i => M[i[1]][i[0]];
+    let f1 = 0, f2 = 0;
+    const p1 = []; for(let i = 0; i <= 5; i++) p1.push([8, i]); p1.push([8, 7], [8, 8], [7, 8]); for(let i = 9; i < 15; i++) p1.push([14 - i, 8]);
+    const p2 = []; for(let i = 0; i < 8; i++) p2.push([size - 1 - i, 8]); for(let i = 8; i < 15; i++) p2.push([8, size - 15 + i]);
+    p1.forEach((p, i) => { if(g(p)) f1 |= 1 << i; }); p2.forEach((p, i) => { if(g(p)) f2 |= 1 << i; });
+    let best = null;
+    for(const [code, d] of FORMATS){ const e = Math.min(bits(code ^ f1), bits(code ^ f2)); if(!best || e < best.e) best = {e, d}; }
+    if(!best || best.e > 3) return null;
+    const ecl = best.d >> 3, mask = best.d & 7, tbl = EC[ecl][ver]; if(!tbl) return null;
+    const [ecLen, g1, d1, g2 = 0, d2 = 0] = tbl, total = (g1 * d1 + g2 * d2) + ecLen * (g1 + g2);
+    const fn = functionMap(ver), mf = MASKS[mask], cw = [];
+    let cur = 0, nb = 0;
+    for(let right = size - 1; right >= 1; right -= 2){
+      if(right === 6) right = 5;
+      for(let vert = 0; vert < size; vert++) for(let j = 0; j < 2; j++){
+        const x = right - j, up = ((right + 1) & 2) === 0, y = up ? size - 1 - vert : vert;
+        if(fn[y][x] || cw.length >= total) continue;
+        let bit = M[y][x]; if(mf(x, y)) bit ^= 1;
+        cur = (cur << 1) | bit; if(++nb === 8){ cw.push(cur); cur = 0; nb = 0; }
+      }
+    }
+    if(cw.length < total) return null;
+    // de-interleave the blocks and fix errors
+    const blocks = []; for(let i = 0; i < g1 + g2; i++) blocks.push({d: [], n: i < g1 ? d1 : d2});
+    let k = 0; const maxD = Math.max(d1, d2);
+    for(let i = 0; i < maxD; i++) for(const b of blocks) if(i < b.n) b.d.push(cw[k++]);
+    for(let i = 0; i < ecLen; i++) for(const b of blocks) b.d.push(cw[k++]);
+    const data = [];
+    for(const b of blocks){ if(!rsCorrect(b.d, ecLen)) return null; data.push(...b.d.slice(0, b.n)); }
+    // byte mode only (that's what MusicBingo prints)
+    let bitPos = 0; const rd = n => { let v = 0; for(let i = 0; i < n; i++){ const byte = data[bitPos >> 3]; v = (v << 1) | ((byte >> (7 - (bitPos & 7))) & 1); bitPos++; } return v; };
+    if(rd(4) !== 4) return null;
+    const len = rd(ver < 10 ? 8 : 16); if(len * 8 + 12 > data.length * 8) return null;
+    const out = []; for(let i = 0; i < len; i++) out.push(rd(8));
+    return new TextDecoder().decode(new Uint8Array(out));
+  }
+  function decode(gray, w, h){
+    const bin = binarize(gray, w, h);
+    for(const step of [2, 1]){   // every other row first (fast); every row if that finds nothing
+      for(const three of pickThree(findFinders(bin, w, h, step))){
+        const r = decodeAt(bin, w, h, three);
+        if(r != null) return r;
+      }
+    }
+    return null;
+  }
+  function decodeAt(bin, w, h, three){
+    const {tl, tr, bl} = three, ms = (tl.ms + tr.ms + bl.ms) / 3;
+    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    let dim = Math.round((dist(tl, tr) + dist(tl, bl)) / ms / 2) + 7;
+    switch(dim & 3){ case 0: dim++; break; case 2: dim--; break; case 3: dim -= 2; break; }
+    for(const D of [dim, dim + 4, dim - 4]){
+      const ver = (D - 17) / 4; if(ver < 1 || ver > 10) continue;
+      for(const flip of [false, true]){
+        const A = tl, B = flip ? bl : tr, C = flip ? tr : bl;
+        // fourth point: the small alignment square (or the missing corner for version 1)
+        const est = homography([[3.5, 3.5], [D - 3.5, 3.5], [D - 3.5, D - 3.5], [3.5, D - 3.5]],
+          [[A.x, A.y], [B.x, B.y], [B.x + C.x - A.x, B.y + C.y - A.y], [C.x, C.y]]);
+        if(!est) continue;
+        const fourth = [[[D - 3.5, D - 3.5], [B.x + C.x - A.x, B.y + C.y - A.y]]];
+        if(ver >= 2){
+          const [ex, ey] = est(D - 6.5, D - 6.5), ap = findAlignment(bin, w, h, ex, ey, ms);
+          if(ap) fourth.unshift([[D - 6.5, D - 6.5], [ap.x, ap.y]]);
+        }
+        for(const [src4, dst4] of fourth){
+          const H = homography([[3.5, 3.5], [D - 3.5, 3.5], src4, [3.5, D - 3.5]], [[A.x, A.y], [B.x, B.y], dst4, [C.x, C.y]]);
+          if(!H) continue;
+          const px = (x, y) => { const [u, v] = H(x, y), ix = Math.round(u), iy = Math.round(v); return ix >= 0 && iy >= 0 && ix < w && iy < h ? bin[iy * w + ix] : 0; };
+          const M = [];
+          for(let y = 0; y < D; y++){
+            const row = new Uint8Array(D);
+            for(let x = 0; x < D; x++){   // each dot read at 5 points, majority wins
+              const s = px(x + .5, y + .5) * 2 + px(x + .3, y + .3) + px(x + .7, y + .3) + px(x + .3, y + .7) + px(x + .7, y + .7);
+              row[x] = s >= 3 ? 1 : 0;
+            }
+            M.push(row);
+          }
+          const text = readGrid(M, ver);
+          if(text != null) return text;
+        }
+      }
+    }
+    return null;
+  }
+  // grayscale from canvas RGBA
+  function fromImageData(img){
+    const {data, width, height} = img, g = new Uint8Array(width * height);
+    for(let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (data[j] * 77 + data[j + 1] * 150 + data[j + 2] * 29) >> 8;
+    return decode(g, width, height);
+  }
+  return {decode, fromImageData, rsCorrect};
+})();
+
+const $ = s => document.querySelector(s);
+/* ---------- pairing: the laptop's QR code opens this page with #t=<private channel>&r=<relay> ---------- */
+const params = new URLSearchParams(location.hash.slice(1));
+let topic = params.get('t'), relay = params.get('r');
+try{
+  if(topic){ localStorage.setItem('mbTopic', topic); localStorage.setItem('mbRelay', relay || ''); history.replaceState(null, '', location.pathname); }
+  else { topic = localStorage.getItem('mbTopic'); relay = localStorage.getItem('mbRelay'); }
+}catch(e){}
+relay = relay || 'https://ntfy.sh';
+
+let es = null, lastHeard = 0, checkingNow = false, helloTimer = 0;
+function setConn(state, text){ const c = $('#conn'); c.className = state; $('#connText').textContent = text; }
+function send(msg){
+  return fetch(`${relay}/${topic}-p2l`, {method: 'POST', body: JSON.stringify(msg)}).catch(() => setConn('bad', 'No internet'));
+}
+function listen(){
+  if(es) es.close();
+  es = new EventSource(`${relay}/${topic}-l2p/sse`);
+  es.onopen = () => { setConn('', 'Finding the laptop…'); send({type: 'hello'}); helloTimer = setTimeout(() => { if(!lastHeard) setConn('bad', 'Laptop not answering. Is MusicBingo open there?'); }, 8000); };
+  es.onmessage = ev => {
+    let d; try{ d = JSON.parse(ev.data); }catch(e){ return; }
+    if(d.event && d.event !== 'message') return;
+    let m; try{ m = JSON.parse(d.message); }catch(e){ return; }
+    lastHeard = Date.now(); setConn('ok', 'Connected');
+    onLaptop(m);
+  };
+  es.onerror = () => { setConn('bad', 'Reconnecting…'); };
+}
+// No regular check-ins: the free relay allows about 250 messages a day, so messages are only sent when something happens.
+
+function onLaptop(m){
+  if(m.type === 'state'){
+    $('#info').textContent = m.playlist ? `${m.playlist} · Round ${m.round} · ${m.roundName}` + (m.onBreak ? ' · on break' : '') : 'No playlist started on the laptop yet';
+  } else if(m.type === 'result'){
+    showResult(m);
+  } else if(m.type === 'warn'){
+    $('#result').innerHTML = '';
+    const v = document.createElement('div'); v.className = 'verdict lose'; v.textContent = m.text;
+    const s = document.createElement('div'); s.className = 'sub'; s.textContent = m.sub || '';
+    $('#result').append(v, s); scanPaused = false;
+  } else if(m.type === 'closed'){
+    endChecking(false);
+  }
+}
+function showResult(m){
+  const box = $('#result'); box.innerHTML = '';
+  const v = document.createElement('div'); v.className = 'verdict ' + (m.win ? 'win' : 'lose');
+  v.textContent = m.win ? `🎉 Card #${m.n} WINS!` : `Card #${m.n}: not yet (${m.short} more)`;
+  const g = document.createElement('div'); g.className = 'mini';
+  for(let i = 0; i < 25; i++){ const c = document.createElement('div'); const k = m.marks[i]; c.className = k === '3' ? 'win' : k === '2' ? 'free' : k === '1' ? 'mk' : ''; g.append(c); }
+  box.append(v, g);
+  if(navigator.vibrate) navigator.vibrate(m.win ? [80, 60, 80, 60, 200] : 120);
+  scanPaused = false;
+}
+
+/* ---------- checking a card ---------- */
+let stream = null, timer = 0, scanPaused = false, last = {code: '', t: 0};
+const canvas = document.createElement('canvas');
+$('#btnCheck').onclick = () => {
+  checkingNow = true;
+  $('#home').hidden = true; $('#checking').hidden = false; $('#result').innerHTML = ''; setNum('');
+  send({type: 'check-open'});
+  if(!$('#padBox').hidden) return;
+  startCam();
+};
+$('#btnDone').onclick = () => { send({type: 'close'}); endChecking(true); };
+function endChecking(){
+  checkingNow = false; stopCam();
+  $('#checking').hidden = true; $('#home').hidden = false;
+}
+$('#btnPad').onclick = () => {
+  const showPad = $('#padBox').hidden;
+  $('#padBox').hidden = !showPad; $('#cam').hidden = showPad;
+  $('#btnPad').textContent = showPad ? '📷 Camera' : '🔢 Type number';
+  if(showPad) stopCam(); else startCam();
+};
+async function startCam(){
+  if(stream) return;
+  $('#camMsg').textContent = 'Starting camera…';
+  try{ stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}, width: {ideal: 1280}, height: {ideal: 720}}, audio: false}); }
+  catch(e){ $('#camMsg').textContent = 'Camera not allowed. Tap "Type number", or allow the camera in your browser settings.'; return; }
+  if(!checkingNow){ stopCam(); return; }
+  const v = $('#video'); v.srcObject = stream; try{ await v.play(); }catch(e){}
+  $('#camMsg').textContent = 'Point at the QR code on the card';
+  loop();
+}
+function stopCam(){ clearTimeout(timer); if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; } $('#video').srcObject = null; }
+function loop(){
+  if(!stream) return;
+  const v = $('#video');
+  if(!scanPaused && v.readyState >= 2 && v.videoWidth){
+    const sc = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight)), w = Math.round(v.videoWidth * sc), h = Math.round(v.videoHeight * sc);
+    canvas.width = w; canvas.height = h;
+    const c = canvas.getContext('2d', {willReadFrequently: true}); c.drawImage(v, 0, 0, w, h);
+    let text = null; try{ text = QRScan.fromImageData(c.getImageData(0, 0, w, h)); }catch(e){}
+    if(text) scanned(text);
+  }
+  timer = setTimeout(loop, 120);
+}
+function scanned(text){
+  const now = Date.now();
+  if(text === last.code && now - last.t < 6000) return;   // same card still in view
+  last = {code: text, t: now};
+  $('#cam').classList.add('hit'); setTimeout(() => $('#cam').classList.remove('hit'), 600);
+  if(navigator.vibrate) navigator.vibrate(40);
+  scanPaused = true; setTimeout(() => { scanPaused = false; }, 4000);
+  $('#result').innerHTML = '<div class="verdict wait">Checking…</div>';
+  send({type: 'card', code: text});
+}
+let entry = '';
+function setNum(v){ entry = v.slice(0, 4); $('#num').textContent = entry ? '#' + entry : 'Card #'; }
+document.querySelectorAll('.pad button').forEach(b => b.onclick = () => {
+  const k = b.dataset.k;
+  if(k === 'back') return setNum(entry.slice(0, -1));
+  if(k === 'go'){ if(entry){ $('#result').innerHTML = '<div class="verdict wait">Checking…</div>'; send({type: 'card', n: +entry}); setNum(''); } return; }
+  setNum(entry + k);
+});
+
+/* ---------- start ---------- */
+if(topic){
+  $('#unpaired').hidden = true; $('#home').hidden = false;
+  setConn('', 'Connecting…'); listen();
+} else setConn('bad', 'Not paired');
+document.addEventListener('visibilitychange', () => { if(!document.hidden && topic){ listen(); } });
+</script>
+</body>
+</html>
