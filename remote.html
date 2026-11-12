@@ -361,7 +361,7 @@ const $ = s => document.querySelector(s);
 const params = new URLSearchParams(location.hash.slice(1));
 let topic = params.get('t'), relay = params.get('r');
 try{
-  if(topic){ localStorage.setItem('mbTopic', topic); localStorage.setItem('mbRelay', relay || ''); history.replaceState(null, '', location.pathname); }
+  if(topic){ localStorage.setItem('mbTopic', topic); localStorage.setItem('mbRelay', relay || '');  }
   else { topic = localStorage.getItem('mbTopic'); relay = localStorage.getItem('mbRelay'); }
 }catch(e){}
 relay = relay || 'https://ntfy.sh';
@@ -468,7 +468,8 @@ function scanned(text){
   send({type: 'card', code: text});
 }
 let entry = '';
-function setNum(v){ entry = v.slice(0, 6);   // paper cards are 1-4 digits, phone cards 6 $('#num').textContent = entry ? '#' + entry : 'Card #'; }
+// paper cards are 1-4 digits, phone cards 6
+function setNum(v){ entry = v.slice(0, 6); $('#num').textContent = entry ? '#' + entry : 'Card #'; }
 document.querySelectorAll('.pad button').forEach(b => b.onclick = () => {
   const k = b.dataset.k;
   if(k === 'back') return setNum(entry.slice(0, -1));
