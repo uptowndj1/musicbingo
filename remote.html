@@ -38,6 +38,7 @@ button{font:inherit;border-radius:12px;border:1px solid #3a4052;background:#2a2f
 .pad button{font-size:28px;font-weight:700;padding:14px 0}
 #num{font-size:30px;font-weight:800;text-align:center;background:#11131a;border:1px solid #3a4052;border-radius:12px;padding:10px;min-height:60px}
 .hint{color:var(--muted);font-size:14px;text-align:center;margin:6px 0}
+.endbtn{background:#1d3a2c;border-color:#2f7a57;color:#c9f5dd;font-size:19px;padding:16px;margin-top:14px}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -66,6 +67,8 @@ button{font:inherit;border-radius:12px;border:1px solid #3a4052;background:#2a2f
   </div>
   <div id="result"></div>
   <div class="row"><button id="btnPad" class="big" style="font-size:18px">🔢 Type number</button><button id="btnDone" class="big primary" style="font-size:18px">Done · resume music</button></div>
+  <button id="btnEnd" class="big endbtn">🏁 End round → break</button>
+  <div class="hint">After the winners: ends the round and starts the break music.</div>
 </div>
 <script>
 /* ---------- QR code reader (for the laptop camera) ---------- */
@@ -387,8 +390,11 @@ function listen(){
 }
 // No regular check-ins: the free relay allows about 250 messages a day, so messages are only sent when something happens.
 
+let lastState = null;
+function setEndLabel(){ $('#btnEnd').textContent = lastState && lastState.round >= 3 ? '🏁 Finish playlist' : '🏁 End round → break'; }
 function onLaptop(m){
   if(m.type === 'state'){
+    lastState = m; setEndLabel();
     $('#info').textContent = m.playlist ? `${m.playlist} · Round ${m.round} · ${m.roundName}` + (m.onBreak ? ' · on break' : '') : 'No playlist started on the laptop yet';
   } else if(m.type === 'result'){
     showResult(m);
@@ -406,9 +412,7 @@ function showResult(m){
   const box = $('#result'); box.innerHTML = '';
   const v = document.createElement('div'); v.className = 'verdict ' + (m.win ? 'win' : 'lose');
   v.textContent = m.win ? `🎉 Card #${m.n} WINS!` : `Card #${m.n}: not yet (${m.short} more)`;
-  const g = document.createElement('div'); g.className = 'mini';
-  for(let i = 0; i < 25; i++){ const c = document.createElement('div'); const k = m.marks[i]; c.className = k === '3' ? 'win' : k === '2' ? 'free' : k === '1' ? 'mk' : k === '4' ? 'need' : ''; g.append(c); }
-  box.append(v, g);
+  box.append(v);   // just the verdict: the card picture is on the laptop
   if(navigator.vibrate) navigator.vibrate(m.win ? [80, 60, 80, 60, 200] : 120);
   scanPaused = false;
 }
@@ -424,6 +428,14 @@ $('#btnCheck').onclick = () => {
   startCam();
 };
 $('#btnDone').onclick = () => { send({type: 'close'}); endChecking(true); };
+// After the winners: end the round and go to the break, right from the phone.
+$('#btnEnd').onclick = () => {
+  const r = lastState && lastState.round, last = r >= 3;
+  if(!confirm(last ? 'That was the last round. Finish this playlist?' : `End${r ? ' Round ' + r : ' this round'} and start the break?`)) return;
+  send({type: 'end-round'}); endChecking(true);
+  $('#homeMsg').style.color = 'var(--in)'; $('#homeMsg').textContent = last ? '✓ Playlist finished.' : '✓ Round over. Break music is on.';
+  setTimeout(() => { $('#homeMsg').textContent = ''; $('#homeMsg').style.color = ''; }, 10000);
+};
 function endChecking(){
   checkingNow = false; stopCam();
   $('#checking').hidden = true; $('#home').hidden = false;
