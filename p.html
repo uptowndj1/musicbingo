@@ -28,6 +28,7 @@ button.link{background:none;color:var(--muted);text-decoration:underline;font-we
 .won{background:#1d3a2e;border:2px solid var(--ok);border-radius:12px;padding:12px;margin:0 0 12px;font-size:20px;font-weight:800;color:#c9f5df;text-align:center}
 .wins{text-align:left;margin:6px 0 0;padding:0;list-style:none}.wins li{padding:6px 2px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:8px}.wins li span{color:var(--muted)}
 .sect{text-align:left;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:14px 0 2px}
+.how{text-align:left;font-size:15px;line-height:1.55;color:#d3d7e2}.how div{padding:3px 0;border-top:1px solid var(--line)}.how div:first-child{border-top:0}.how b{color:var(--accent)}
 .pcode{font:900 26px "Courier New",monospace;letter-spacing:5px;color:#fff}
 .vote button{background:#2a2050;color:#fff;border:2px solid var(--purple)}.vote button.mine{background:var(--purple)}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#555;margin-right:6px}.dot.ok{background:var(--ok)}
@@ -45,6 +46,12 @@ button.link{background:none;color:var(--muted);text-decoration:underline;font-we
   <div id="vName" class="box" hidden>
     <div class="big">Welcome! 👋</div>
     <div>Check in to earn points every time you play, plus prizes.</div>
+    <div class="how" style="margin-top:12px">
+      <div><b>+1</b> for each game you play</div>
+      <div><b>+1 / +2 / +5</b> for winning a single line / double line / blackout</div>
+      <div><b>+4</b> for every 4 weeks in a row</div>
+      <div id="howPrize0">Every <b>25 points</b> earns a prize!</div>
+    </div>
     <div style="margin:14px 0 6px;font-weight:700">What should we call you?</div>
     <input id="name" maxlength="6" autocomplete="nickname" placeholder="Nickname">
     <div class="msg" style="margin-top:6px">Up to 6 letters</div>
@@ -93,6 +100,10 @@ button.link{background:none;color:var(--muted);text-decoration:underline;font-we
       <div class="big">🗳 Pick next theme!</div>
       <div id="voteMsg" class="msg" style="margin-top:2px"></div>
       <div id="voteOpts"></div>
+    </div>
+    <div class="box">
+      <div class="sect" style="margin-top:0">How points work</div>
+      <div id="howList" class="how"></div>
     </div>
     <div id="winBox" class="box" hidden>
       <div class="sect" style="margin-top:0">Your wins</div>
@@ -224,7 +235,23 @@ function render(m){
   for(const w of (m.wins || []).slice().reverse()){ const li = document.createElement('li'); li.textContent = `${fmt(w.d)} · Round ${w.r}`; const s = document.createElement('span'); s.textContent = `+${w.pts}`; li.append(s); wl.append(li); }
   $('#winBox').hidden = !(m.wins || []).length;
   $('#pcode').textContent = me ? me.pid : '';
+  renderHow(m.rules);
   renderVote(m);
+}
+// The point values and prizes come from Andrew's laptop, so this always matches how MusicBingo counts them.
+function renderHow(r){
+  r = r || {play: 1, win: [1, 2, 5], streak: [4, 4], prizes: [[25, "Bag of Mama Hen's Seasoned Pretzels"], [50, 'Free appetizer']]};
+  const h = $('#howList'); h.innerHTML = '';
+  const line = (pts, text) => { const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = pts; d.append(b, ' ' + text); h.append(d); };
+  line(`+${r.play}`, 'for each game you check in to (2 games a night)');
+  line(`+${r.win[0]}`, 'for winning a single line');
+  line(`+${r.win[1]}`, 'for winning a double line');
+  line(`+${r.win[2]}`, 'for winning a blackout');
+  line(`+${r.streak[1]}`, `for every ${r.streak[0]} weeks in a row`);
+  if(r.prizes && r.prizes.length){
+    for(const [at, name] of r.prizes) line(`${at} points:`, name);
+    const d = document.createElement('div'); d.textContent = `Then it keeps going: a prize at every ${r.prizes[0][0]} points, and your points never run out.`; h.append(d);
+  }
 }
 function renderVote(m){
   const box = $('#voteBox'), v = m.vote;
