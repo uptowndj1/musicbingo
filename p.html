@@ -46,7 +46,8 @@ button.link{background:none;color:var(--muted);text-decoration:underline;font-we
     <div class="big">Welcome! 👋</div>
     <div>Check in to earn points every time you play, plus prizes.</div>
     <div style="margin:14px 0 6px;font-weight:700">What should we call you?</div>
-    <input id="name" maxlength="20" autocomplete="nickname" placeholder="Nickname">
+    <input id="name" maxlength="6" autocomplete="nickname" placeholder="Nickname">
+    <div class="msg" style="margin-top:6px">Up to 6 letters</div>
     <button id="nameGo">Check me in</button>
     <div id="nameMsg" class="msg"></div>
     <button class="link" id="haveCode">I've played before (I have a player code)</button>
@@ -136,8 +137,8 @@ function begin(){
   checkIn();
 }
 $('#nameGo').onclick = () => {
-  const n = $('#name').value.replace(/\s+/g, ' ').trim();
-  if(n.length < 2){ $('#nameMsg').className = 'msg err'; $('#nameMsg').textContent = 'Type a nickname (at least 2 letters).'; return; }
+  const n = $('#name').value.replace(/\s+/g, ' ').trim().slice(0, 6);
+  if(n.length < 2){ $('#nameMsg').className = 'msg err'; $('#nameMsg').textContent = 'Type a nickname (2 to 6 letters).'; return; }
   me = {pid: newPid(), name: n}; ls.set('mbPlayer', me); checkIn();
 };
 $('#name').addEventListener('keydown', e => { if(e.key === 'Enter') $('#nameGo').click(); });
