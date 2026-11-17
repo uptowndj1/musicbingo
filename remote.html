@@ -66,6 +66,7 @@ button{font:inherit;border-radius:12px;border:1px solid #3a4052;background:#2a2f
     </div>
   </div>
   <div id="result"></div>
+  <button id="btnAgain" class="big check" style="font-size:21px;padding:16px" hidden>🎟 Check another card</button>
   <div class="row"><button id="btnPad" class="big" style="font-size:18px">🔢 Type number</button><button id="btnDone" class="big primary" style="font-size:18px">Done · resume music</button></div>
   <button id="btnEnd" class="big endbtn">🏁 End round → break</button>
   <div class="hint">After the winners: ends the round and starts the break music.</div>
@@ -403,7 +404,7 @@ function onLaptop(m){
     $('#result').innerHTML = '';
     const v = document.createElement('div'); v.className = 'verdict lose'; v.textContent = m.text;
     const s = document.createElement('div'); s.className = 'sub'; s.textContent = m.sub || '';
-    $('#result').append(v, s); scanPaused = false;
+    $('#result').append(v, s); scanPaused = false; $('#btnAgain').hidden = false;
   } else if(m.type === 'closed'){
     endChecking(false);
   }
@@ -414,7 +415,7 @@ function showResult(m){
   v.textContent = m.win ? `🎉 Card #${m.n} WINS!` : `Card #${m.n}: not yet (${m.short} more)`;
   box.append(v);   // just the verdict: the card picture is on the laptop
   if(navigator.vibrate) navigator.vibrate(m.win ? [80, 60, 80, 60, 200] : 120);
-  scanPaused = false;
+  scanPaused = false; $('#btnAgain').hidden = false;
 }
 
 /* ---------- checking a card ---------- */
@@ -422,16 +423,22 @@ let stream = null, timer = 0, scanPaused = false, last = {code: '', t: 0};
 const canvas = document.createElement('canvas');
 $('#btnCheck').onclick = () => {
   checkingNow = true;
-  $('#home').hidden = true; $('#checking').hidden = false; $('#result').innerHTML = ''; setNum('');
+  $('#home').hidden = true; $('#checking').hidden = false; $('#result').innerHTML = ''; setNum(''); $('#btnAgain').hidden = true;
   send({type: 'check-open'});
   if(!$('#padBox').hidden) return;
   startCam();
 };
+// Another winner to check (ties): clears the last result and readies the camera for the next card (no waiting music).
+$('#btnAgain').onclick = () => {
+  $('#btnAgain').hidden = true; $('#result').innerHTML = ''; setNum('');
+  last = {code: '', t: 0}; scanPaused = false;
+  send({type: 'check-open', again: true});
+  if($('#padBox').hidden) startCam();
+};
 $('#btnDone').onclick = () => { send({type: 'close'}); endChecking(true); };
 // After the winners: end the round and go to the break, right from the phone.
 $('#btnEnd').onclick = () => {
-  const r = lastState && lastState.round, last = r >= 3;
-  if(!confirm(last ? 'That was the last round. Finish this playlist?' : `End${r ? ' Round ' + r : ' this round'} and start the break?`)) return;
+  const r = lastState && lastState.round, last = r >= 3;   // no confirmation: "Oops, back to Round" on the laptop's break screen undoes it
   send({type: 'end-round'}); endChecking(true);
   $('#homeMsg').style.color = 'var(--in)'; $('#homeMsg').textContent = last ? '✓ Playlist finished.' : '✓ Round over. Break music is on.';
   setTimeout(() => { $('#homeMsg').textContent = ''; $('#homeMsg').style.color = ''; }, 10000);
@@ -476,7 +483,7 @@ function scanned(text){
   $('#cam').classList.add('hit'); setTimeout(() => $('#cam').classList.remove('hit'), 600);
   if(navigator.vibrate) navigator.vibrate(40);
   scanPaused = true; setTimeout(() => { scanPaused = false; }, 4000);
-  $('#result').innerHTML = '<div class="verdict wait">Checking…</div>';
+  $('#result').innerHTML = '<div class="verdict wait">Checking…</div>'; $('#btnAgain').hidden = true;
   send({type: 'card', code: text});
 }
 let entry = '';
@@ -485,7 +492,7 @@ function setNum(v){ entry = v.slice(0, 6); $('#num').textContent = entry ? '#' +
 document.querySelectorAll('.pad button').forEach(b => b.onclick = () => {
   const k = b.dataset.k;
   if(k === 'back') return setNum(entry.slice(0, -1));
-  if(k === 'go'){ if(entry){ $('#result').innerHTML = '<div class="verdict wait">Checking…</div>'; send({type: 'card', n: +entry}); setNum(''); } return; }
+  if(k === 'go'){ if(entry){ $('#result').innerHTML = '<div class="verdict wait">Checking…</div>'; $('#btnAgain').hidden = true; send({type: 'card', n: +entry}); setNum(''); } return; }
   setNum(entry + k);
 });
 
